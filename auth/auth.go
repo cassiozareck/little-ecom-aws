@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	config2 "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/golang-jwt/jwt"
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
@@ -213,19 +217,46 @@ func DeleteAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Build a PostgreSQL connection string using the environment variables DB_account and DB_PASSWORD
-	dbUser := os.Getenv("DB_USER")
-	dbPassword := os.Getenv("DB_PASSWORD")
-	dbHost := os.Getenv("DB_HOST")
-	dbName := os.Getenv("DB_NAME")
-	dbPort := "5432"
+	secretName := "SecretsRDS"
+	region := "sa-east-1"
 
-	connectionString := "postgres://" + dbUser + ":" + dbPassword + "@" + dbHost + ":" + dbPort + "/" + dbName + "?sslmode=require"
+	config, err := config2.LoadDefaultConfig(context.TODO(), config2.WithRegion(region))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create Secrets Manager client
+	svc := secretsmanager.NewFromConfig(config)
+
+	input := &secretsmanager.GetSecretValueInput{SecretId: aws.String(secretName), VersionStage: aws.String("AWSCURRENT")}
+	result, err := svc.GetSecretValue(context.Background(), input)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	// Decrypts secret using the associated KMS key.
+	var secretString string = *result.SecretString
+
+	// The secret value is in secretString (which is a JSON string)
+	var secretMap map[string]string
+	err = json.Unmarshal([]byte(secretString), &secretMap)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	// Build a PostgreSQL connection string using the environment variables DB_account and DB_PASSWORD
+	dbUser := secretMap["username"]
+	dbPassword := secretMap["password"]
+	dbEngine := secretMap["engine"]
+	dbHost := secretMap["host"]
+	dbPort := secretMap["port"]
+	dbName := secretMap["dbInstanceIdentifier"]
+
+	connectionString := fmt.Sprintf("%s://%s:%s@%s:%s/%s?sslmode=require", dbEngine, dbUser, dbPassword, dbHost, dbPort, dbName)
 
 	log.Println("Connecting with: " + connectionString)
 
 	// Open a connection to the PostgreSQL database
-	var err error
 	db, err = sql.Open("postgres", connectionString)
 	if err != nil {
 		log.Fatal(err)
