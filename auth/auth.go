@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	config2 "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/golang-jwt/jwt"
 	"github.com/gorilla/mux"
@@ -220,41 +220,43 @@ func main() {
 	secretName := "SecretsRDS"
 	region := "sa-east-1"
 
-	config, err := config2.LoadDefaultConfig(context.TODO(), config2.WithRegion(region))
+	// Load the Shared AWS Configuration (~/.aws/config)
+	config, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("unable to load SDK config, %v", err)
 	}
 
-	// Create Secrets Manager client
-	svc := secretsmanager.NewFromConfig(config)
+	// Create an Amazon Secrets Manager client
+	client := secretsmanager.NewFromConfig(config)
 
-	input := &secretsmanager.GetSecretValueInput{SecretId: aws.String(secretName), VersionStage: aws.String("AWSCURRENT")}
-	result, err := svc.GetSecretValue(context.Background(), input)
-	if err != nil {
-		log.Fatal(err.Error())
+	// Build the request with its input parameters
+	input := &secretsmanager.GetSecretValueInput{
+		SecretId:     aws.String(secretName),
+		VersionStage: aws.String("AWSCURRENT"), // VersionStage defaults to AWSCURRENT if unspecified
 	}
 
-	// Decrypts secret using the associated KMS key.
-	var secretString string = *result.SecretString
-
-	// The secret value is in secretString (which is a JSON string)
-	var secretMap map[string]string
-	err = json.Unmarshal([]byte(secretString), &secretMap)
+	// Retrieve the secret value
+	result, err := client.GetSecretValue(context.Background(), input)
 	if err != nil {
-		log.Fatal(err.Error())
+		log.Fatalf("got an error retrieving the secret value: %s", err)
 	}
 
-	// Build a PostgreSQL connection string using the environment variables DB_account and DB_PASSWORD
-	dbUser := secretMap["username"]
-	dbPassword := secretMap["password"]
-	dbEngine := secretMap["engine"]
-	dbHost := secretMap["host"]
-	dbPort := secretMap["port"]
-	dbName := secretMap["dbInstanceIdentifier"]
+	// SecretString is a JSON string, so we need to unmarshal it into a map that can accept any type of JSON values
+	var secretMap map[string]interface{}
+	err = json.Unmarshal([]byte(*result.SecretString), &secretMap)
+	if err != nil {
+		log.Fatalf("json.Unmarshal error: %s", err)
+	}
 
-	connectionString := fmt.Sprintf("%s://%s:%s@%s:%s/%s?sslmode=require", dbEngine, dbUser, dbPassword, dbHost, dbPort, dbName)
+	// Access individual values by casting them to the expected type
+	dbUser := getString(secretMap, "username")
+	dbPassword := getString(secretMap, "password")
+	dbEngine := getString(secretMap, "engine")
+	dbHost := getString(secretMap, "host")
 
-	log.Println("Connecting with: " + connectionString)
+	// Construct the connection string
+	connectionString := fmt.Sprintf("%s://%s:%s@%s:5432/auth?sslmode=require",
+		dbEngine, dbUser, dbPassword, dbHost)
 
 	// Open a connection to the PostgreSQL database
 	db, err = sql.Open("postgres", connectionString)
@@ -274,6 +276,19 @@ func main() {
 	r.HandleFunc("/auth/signin", SignIn).Methods("POST")
 	r.HandleFunc("/auth/validate", ValidateToken).Methods("POST")
 	r.HandleFunc("/auth/delete", DeleteAccount).Methods("DELETE")
+	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}).Methods("GET")
+
 	// Start the HTTP server
 	http.ListenAndServe(":8080", r)
+}
+
+// getString helps in retrieving string values from the map and handles type assertion
+func getString(m map[string]interface{}, key string) string {
+	value, ok := m[key].(string)
+	if !ok {
+		log.Fatalf("The secret does not contain '%s' or it is not a string.", key)
+	}
+	return value
 }
