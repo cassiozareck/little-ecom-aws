@@ -222,20 +222,6 @@ func AddItem(w http.ResponseWriter, r *http.Request) {
 
 	item.ID = oid
 
-	notificationItem := NotificationItem{
-		Email: email,
-		Name:  item.Name,
-		Price: item.Price,
-	}
-
-	jsonItem, err := json.Marshal(notificationItem)
-	if err != nil {
-		http.Error(w, "Failed to marshal item", http.StatusInternalServerError)
-		return
-	}
-
-	publishToRabbitMQ("ecom.item.add", jsonItem)
-
 	log.Println("Item added: ", item)
 
 	// It should return ID
@@ -362,21 +348,6 @@ func BuyItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error deleting item", http.StatusInternalServerError)
 		return
 	}
-
-	// Publish to notifier who bought the item
-	notificationItem := NotificationItem{
-		Email: email,
-		Name:  item.Name,
-		Price: item.Price,
-	}
-
-	jsonItem, err := json.Marshal(notificationItem)
-	if err != nil {
-		http.Error(w, "Failed to marshal item", http.StatusInternalServerError)
-		return
-	}
-
-	publishToRabbitMQ("ecom.item.buy", jsonItem)
 
 	log.Println("Item bought: ", item)
 	w.WriteHeader(http.StatusOK)
