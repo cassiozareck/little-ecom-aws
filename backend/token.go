@@ -56,7 +56,8 @@ func validateToken(token string) (string, error) {
 	}
 
 	// Send the token to the auth service
-	resp, err := http.Post("http://auth-svc:8080/auth/validate", "application/json", bytes.NewBuffer(tokenReqBytes))
+	// We should had used environment variables here
+	resp, err := http.Post("http://auth-lb-1763637990.sa-east-1.elb.amazonaws.com:80/auth/validate", "application/json", bytes.NewBuffer(tokenReqBytes))
 	if err != nil {
 		return "", err
 	}

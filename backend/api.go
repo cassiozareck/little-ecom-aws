@@ -352,3 +352,12 @@ func BuyItem(w http.ResponseWriter, r *http.Request) {
 	log.Println("Item bought: ", item)
 	w.WriteHeader(http.StatusOK)
 }
+
+// Health is a health check endpoint.
+func Health(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write([]byte("OK"))
+	if err != nil {
+		log.Fatal("Error while writing response: ", err)
+	}
+}

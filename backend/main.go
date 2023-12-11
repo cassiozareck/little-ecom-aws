@@ -27,6 +27,7 @@ func main() {
 	r.HandleFunc("/items/{owner}", GetItemsByOwner).Methods("GET")
 	r.HandleFunc("/items", GetItems).Methods("GET")
 	r.HandleFunc("/buy/{id:[a-f\\d]{24}}", BuyItem).Methods("POST")
+	r.HandleFunc("/health", Health).Methods("GET")
 
 	log.Println("Routers done!")
 
